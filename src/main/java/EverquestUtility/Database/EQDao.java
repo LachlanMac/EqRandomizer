@@ -1,8 +1,5 @@
 package EverquestUtility.Database;
 
-import java.io.BufferedReader;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -13,47 +10,57 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-import org.apache.ibatis.jdbc.ScriptRunner;
-
 import EverquestUtility.Database.Helpers.Faction;
+import EverquestUtility.Database.Helpers.Item;
+import EverquestUtility.Database.Helpers.LootEntry;
 import EverquestUtility.Database.Helpers.Mob;
+import EverquestUtility.Database.Helpers.MobItemPacket;
 import EverquestUtility.Database.Helpers.NPCFaction;
 import EverquestUtility.Database.Helpers.Spawn;
 import EverquestUtility.Database.Helpers.SpawnEntry;
 import EverquestUtility.Database.Helpers.SpawnGroup;
 import EverquestUtility.Database.Helpers.Zone;
 import EverquestUtility.FactionBuilder.BuiltFaction;
+import EverquestUtility.FactionBuilder.FactionBundle;
 import EverquestUtility.Util.ComparableFactionObject;
 import EverquestUtility.Util.ConfigReader;
+import EverquestUtility.Util.Debug;
 import EverquestUtility.Util.Util;
+import EverquestUtility.data.LdonMobPacket;
 
 public class EQDao {
 
+	public List<LootEntry> entries;
 	public List<NPCFaction> factions;
 	public List<Mob> mobs;
 	public List<Mob> raidMobs;
 	public ArrayList<Mob> filteredMobs;
-	public List<SpawnGroup> spawnGroups;;
+	public List<SpawnGroup> spawnGroups;
 	public List<SpawnEntry> spawnEntries;
 	public List<Spawn> spawns;
 	public List<Zone> zones;
 	public List<Faction> primaryFactions;
+	public List<Faction> smallPrimaryFactions;
 	public List<Faction> trimmedFactions;
-
+	public List<Mob> namedMobs;
+	public List<Zone> ldonZones;
+	public List<Mob> necroMobs;
+	public List<Mob> mageMobs;
+	public List<Mob> skMobs;
+	public List<Mob> waterMobs;
+	ArrayList<Mob> tinyFactionMobs;
 	public int FAILURES = 0;
 	public int COMPLETE_FAILURES = 0;
 	public int[] VARIETY_REPORT = new int[100];
-
-	private final int MAX_RANDOM_FACTION_CHECK = 500;
-
-	private final int MIN_MOBS_IN_FACTION = 10;
+	public static int MOBS_ADDED_TO_ZONE = 0;
+	private final int MIN_MOBS_IN_FACTION = 8;
 	private Connection floatingConnection;
 
 	public Connection getFloatingConnection() {
 		return floatingConnection;
 	}
 
-	private final static String CONNECTION_STRING = "jdbc:mysql://localhost/xeq?" + "user=root&password=Movingon1";
+	private final static String CONNECTION_STRING = "jdbc:mysql://192.168.10.69/xeq?user=remote&password=Movingon1";
 
 	Random rn;
 
@@ -66,9 +73,17 @@ public class EQDao {
 		mobs = new ArrayList<Mob>();
 		zones = new ArrayList<Zone>();
 		primaryFactions = new ArrayList<Faction>();
+		smallPrimaryFactions = new ArrayList<Faction>();
 		raidMobs = new ArrayList<Mob>();
 		trimmedFactions = new ArrayList<Faction>();
 		filteredMobs = new ArrayList<Mob>();
+		namedMobs = new ArrayList<Mob>();
+		ldonZones = new ArrayList<Zone>();
+		tinyFactionMobs = new ArrayList<Mob>();
+		mageMobs = new ArrayList<Mob>();
+		necroMobs = new ArrayList<Mob>();
+		skMobs = new ArrayList<Mob>();
+		waterMobs = new ArrayList<Mob>();
 
 		try {
 			floatingConnection = DriverManager.getConnection(CONNECTION_STRING);
@@ -80,12 +95,186 @@ public class EQDao {
 
 	}
 
+	public void addHotzone(Zone zone) {
+
+		PreparedStatement stmt = null;
+		int rs = 1;
+		String statement = "UPDATE zone set hotzone=1 where short_name=?";
+		try {
+			stmt = getFloatingConnection().prepareStatement(statement);
+			stmt.setString(1, zone.getName());
+			rs = stmt.executeUpdate();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+
+	public void addExp(Zone zone, float amount) {
+		PreparedStatement stmt = null;
+		int rs = 1;
+		String statement = "UPDATE zone set zone_exp_multiplier=? where short_name=?";
+		try {
+			stmt = getFloatingConnection().prepareStatement(statement);
+			stmt.setFloat(1, amount);
+			stmt.setString(2, zone.getName());
+			rs = stmt.executeUpdate();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	public void addDungeonExp(Zone zone) {
+
+		PreparedStatement stmt = null;
+		int rs = 1;
+		String statement = "UPDATE zone set zone_exp_multiplier=1.70 where short_name=?";
+		try {
+			stmt = getFloatingConnection().prepareStatement(statement);
+			stmt.setString(1, zone.getName());
+			rs = stmt.executeUpdate();
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+
+	public void addUnique(ArrayList<Mob> mList, Mob m) {
+		boolean contains = false;
+		for (Mob mm : mList) {
+			if (m.name.contentEquals(mm.name)) {
+				contains = true;
+				break;
+			}
+		}
+		if (!contains) {
+			mList.add(m);
+		}
+
+	}
+
+	public int GetRandomTextureForRace(int race) {
+
+		int texture = 0;
+		ArrayList<Integer> mobsOfRace = new ArrayList<Integer>();
+		for (Mob m : mobs) {
+			if (m.race == race) {
+				boolean exists = false;
+				for (Integer ii : mobsOfRace) {
+					if (ii.intValue() == m.texture) {
+						exists = true;
+					}
+				}
+				if (!exists) {
+					mobsOfRace.add(texture);
+				}
+			}
+		}
+
+		return mobsOfRace.get(rn.nextInt(mobsOfRace.size()));
+
+	}
+
+	public LdonMobPacket GetLevelOneRaidMobs(String zone) {
+
+		ArrayList<Mob> goodMobs = new ArrayList<Mob>();
+
+		for (Mob m : raidMobs) {
+			if (!m.FilterMob()) {
+				if (m.getLevel() >= 55 || m.getLevel() <= 45) {
+					continue;
+				}
+				String name = m.name.toLowerCase();
+				String subName = "";
+				try {
+					subName = name.substring(0, 4);
+				} catch (IndexOutOfBoundsException e) {
+					continue;
+				}
+
+				if (m.getId() == 500) {
+					continue;
+				}
+
+				if (name.contains("fabled")) {
+					continue;
+				}
+				if (subName.contains("a_") || subName.contains("an_")) {
+					addUnique(goodMobs, m);
+					continue;
+				}
+
+				if (name.contains("#")) {
+					if (subName.contains("#a_") || subName.contains("#an_")) {
+						addUnique(goodMobs, m);
+						continue;
+					}
+				}
+				if (m.spawn_limit == 1) {
+					continue;
+				}
+
+				for (String s : ConfigReader.NORMAL_MOB_INDICATORS) {
+					if (name.contains("sorceror_")) {
+						// this word has orc in it...
+						break;
+					}
+
+					if (name.contains(s)) {
+						addUnique(goodMobs, m);
+						break;
+					}
+
+				}
+
+			}
+
+		}
+
+		LdonMobPacket p = new LdonMobPacket(1);
+		p.setSpawnGroups(GetAllSpawnGroupsInZone(zone, true));
+		p.setRace(ConfigReader.RANDOM_RAID_RACES[rn.nextInt(ConfigReader.RANDOM_RAID_RACES.length)]);
+		p.setTexture(GetRandomTextureForRace(p.getRace()));
+		Random rn = new Random();
+		for (int i = 0; i < 5; i++) {
+			Mob m = goodMobs.get(rn.nextInt(goodMobs.size()));
+			try {
+				Mob mCopy = (Mob) m.clone();
+				p.getRegularSpawns().add(mCopy);
+				goodMobs.remove(m);
+			} catch (CloneNotSupportedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+			// p.getRegularSpawns().add()
+		}
+		p.setMonsters(this);
+
+		return p;
+
+	}
+
+	public void PrintRaidMobs() {
+
+		for (Mob m : raidMobs) {
+			if (m.getLevel() <= 55) {
+				System.out.println(m.getName() + ":" + m.getLevel());
+			}
+		}
+
+	}
+
 	public void load() {
 		System.out.println("Loading Factions");
 		loadFactions();
 		loadPrimaryFactions();
 		System.out.println("Loading Zones");
 		loadZones();
+		loadLDONZones();
 		System.out.println("Loading Normal Mobs");
 		LoadNormalMobs();
 		System.out.println("Filtering Mobs");
@@ -96,11 +285,92 @@ public class EQDao {
 		loadSpawnEntries();
 		System.out.println("Linking To Factions");
 		addMobsToFactions();
-
-		Faction f = GetPrimaryFactionByID(0);
+		GetSpecialtyMobs();
 
 		printReport();
 
+	}
+
+	public Faction getNecromancerFaction() {
+
+		return null;
+
+	}
+
+	public ArrayList<MobItemPacket> findItem(String name) {
+		ArrayList<MobItemPacket> results = new ArrayList<MobItemPacket>();
+		for (Item item : FindItemsByName(name)) {
+			for (LootEntry e : GetEntries(item)) {
+				setLootTables(e);
+				for (Integer i : e.getLoottable_ids()) {
+					for (Mob m : GetMobByLoottableID(i)) {
+						for (SpawnGroup sg : getSpawnGroupsWithMob(m)) {
+							for (SpawnEntry se : sg.getEntries()) {
+								if (se.getNpcId() == m.getId()) {
+									results.add(new MobItemPacket(sg.getFormatZones(), m, se.getChance()));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return results;
+	}
+
+	public Mob getWaterMobAroundLevel(int level) {
+		ArrayList<Mob> possible = new ArrayList<Mob>();
+		for (Mob m : waterMobs) {
+			if (Math.abs(level - m.level) <= 5) {
+				possible.add(m);
+			}
+		}
+		Mob mm = null;
+		try {
+			mm = (Mob) possible.get(rn.nextInt(possible.size())).clone();
+
+			switch (mm.race) {
+
+			case ConfigReader.BARRACUDA_RACE:
+				mm.name = "A_Barracuda";
+				break;
+			case ConfigReader.SHARK_RACE:
+				mm.name = "A_Shark";
+				break;
+			case ConfigReader.FISH_RACE:
+				mm.name = "A_Fish";
+				break;
+			case ConfigReader.TIDE_FEASTER:
+				mm.name = "A_Tide_Feaster";
+				break;
+			case ConfigReader.ANGLER_RACE:
+				mm.name = "An_Angler";
+				break;
+			case ConfigReader.SEAHORSE_RACE:
+				mm.name = "A_Seahorse";
+				break;
+			case ConfigReader.SWARM_RACE:
+				mm.name = "A_Swarm";
+				break;
+			case ConfigReader.MINNOW_RACE:
+				mm.name = "A_Minnow";
+				break;
+			case ConfigReader.NERIAD_RACE:
+				mm.name = "A_Neriad";
+				break;
+			case ConfigReader.BARRACUDA_2_RACE:
+				mm.name = "A_Barracuda";
+				break;
+			default:
+				mm.name = "A_Curious_Fish";
+
+			}
+		} catch (CloneNotSupportedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		return mm;
 	}
 
 	private void FilterMobs() {
@@ -108,6 +378,10 @@ public class EQDao {
 		for (Mob m : mobs) {
 
 			if (!m.FilterMob()) {
+
+				if (m.underwater != 0) {
+					waterMobs.add(m);
+				}
 
 				if (m.raidtarget != 0) {
 					if (m.name.length() >= 4) {
@@ -134,58 +408,61 @@ public class EQDao {
 		System.out.println("Trimmed Faction " + trimmedFactions.size());
 	}
 
+	public ArrayList<SpawnGroup> getSpawnGroupsWithMob(Mob m) {
+
+		ArrayList<SpawnGroup> sgWMob = new ArrayList<SpawnGroup>();
+
+		for (SpawnGroup sg : spawnGroups) {
+			for (SpawnEntry e : sg.getEntries()) {
+				if (e.getNpcId() == m.getId()) {
+					sgWMob.add(sg);
+				}
+			}
+		}
+
+		return sgWMob;
+	}
+
 	private void addMobsToFactions() {
 
 		for (Mob m : filteredMobs) {
 
 			Faction f = GetPrimaryFactionByID(m.getPrimaryFaction().getId());
-			f.addMob(m);
+			Mob freshMob = null;
+			try {
+				freshMob = (Mob) m.clone();
+			} catch (CloneNotSupportedException e) {
+
+				e.printStackTrace();
+				System.exit(0);
+			}
+			f.addMob(freshMob);
 
 		}
-		System.out.println("_____FACTIONS______");
 		Collections.sort(primaryFactions);
-
-		// for (int i = 0; i < 30; i++) {
-		// System.out.println("ID[" + primaryFactions.get(i).getId() + "] " +
-		// primaryFactions.get(i).getName() + " C:"
-		// + primaryFactions.get(i).getMobs().size());
-		// }
-
 		for (SpawnGroup sg : spawnGroups) {
 			sg.setPrimaryFaction(this);
 		}
+
+		ArrayList<Faction> destroyFactions = new ArrayList<Faction>();
 
 		for (Faction f : primaryFactions) {
 			if (f.getMobs().size() >= MIN_MOBS_IN_FACTION) {
 				f.updateFaction();
 				trimmedFactions.add(f);
-
+			} else {
+				smallPrimaryFactions.add(f);
+				f.updateFaction();
+				if (f.DestroyFaction())
+					destroyFactions.add(f);
 			}
 
 		}
 
-	}
-
-	public void Rebase() {
-		Connection conn = null;
-		try {
-			conn = DriverManager.getConnection(CONNECTION_STRING);
-			ScriptRunner sr = new ScriptRunner(conn);
-
-			BufferedReader reader = new BufferedReader(new FileReader("data/mobs.sql"));
-			// Running the script
-
-			conn.close();
-		} catch (SQLException ex) {
-			// handle any errors
-			System.out.println("SQLException: " + ex.getMessage());
-			System.out.println("SQLState: " + ex.getSQLState());
-			System.out.println("VendorError: " + ex.getErrorCode());
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		for (Faction dF : destroyFactions) {
+			// System.out.println("Destroyed " + dF.getName());
+			smallPrimaryFactions.remove(dF);
 		}
-
 	}
 
 	public void LoadNormalMobs() {
@@ -204,7 +481,6 @@ public class EQDao {
 				String name = rs.getString("name");
 				int id = rs.getInt("id");
 				int lev = rs.getInt("level");
-				int runspeed = rs.getInt("runspeed");
 				int merchantID = rs.getInt("merchant_id");
 				int factionID = rs.getInt("npc_faction_id");
 				int trapID = rs.getInt("trap_template");
@@ -325,14 +601,29 @@ public class EQDao {
 		}
 	}
 
-	public void LoadSpawnsFromZones() {
+	public void commit() {
+		Connection conn = null;
+		try {
+			conn = DriverManager.getConnection(CONNECTION_STRING);
+			conn.commit();
+			conn.close();
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+		}
+
+	}
+
+	public void LoadSpawnsFromZone() {
 		Connection conn = null;
 		try {
 			conn = DriverManager.getConnection(CONNECTION_STRING);
 			for (Zone z : zones) {
 				PreparedStatement stmt = null;
 				ResultSet rs = null;
-				String statement = "SELECT id,spawngroupID,zone from spawn2 where zone=?";
+				String statement = "SELECT id,spawngroupID,zone,version from spawn2 where zone=?";
 				stmt = conn.prepareStatement(statement);
 				stmt.setString(1, z.getName());
 				rs = stmt.executeQuery();
@@ -341,10 +632,33 @@ public class EQDao {
 					int id = rs.getInt("id");
 					int spawngroupID = rs.getInt("spawngroupID");
 					String zone = rs.getString("zone");
-					Spawn s = new Spawn(id, spawngroupID, zone);
+					int version = rs.getInt("version");
+					Spawn s = new Spawn(id, spawngroupID, zone, version);
+					spawns.add(s);
+
+					z.addSpawn(s);
+					AddSpawnGroup(spawngroupID, zone);
+
+				}
+			}
+
+			for (Zone z : ldonZones) {
+				PreparedStatement stmt = null;
+				ResultSet rs = null;
+				String statement = "SELECT id,spawngroupID,zone,version from spawn2 where zone=?";
+				stmt = conn.prepareStatement(statement);
+				stmt.setString(1, z.getName());
+				rs = stmt.executeQuery();
+				while (rs.next()) {
+
+					int id = rs.getInt("id");
+					int spawngroupID = rs.getInt("spawngroupID");
+					int version = rs.getInt("version");
+					String zone = rs.getString("zone");
+					Spawn s = new Spawn(id, spawngroupID, zone, version);
 					spawns.add(s);
 					z.addSpawn(s);
-					AddSpawnGroup(spawngroupID);
+					AddSpawnGroup(spawngroupID, zone);
 				}
 			}
 
@@ -358,49 +672,52 @@ public class EQDao {
 
 	}
 
-	public SpawnGroup AddSpawnGroup(int spawnGroupID) {
-
-		for (SpawnGroup s : spawnGroups) {
-
-			if (s.getId() == spawnGroupID)
-				return s;
-
-		}
-
-		SpawnGroup sg = new SpawnGroup(spawnGroupID);
-		spawnGroups.add(sg);
-		return sg;
-
-	}
-
-	public void LoadSpawnGroupsFromZone() {
-
+	public void LoadSpawnsFromZones() {
 		Connection conn = null;
 		try {
 			conn = DriverManager.getConnection(CONNECTION_STRING);
 			for (Zone z : zones) {
+				PreparedStatement stmt = null;
+				ResultSet rs = null;
+				String statement = "SELECT id,spawngroupID,zone,version from spawn2 where zone=?";
+				stmt = conn.prepareStatement(statement);
+				stmt.setString(1, z.getName());
+				rs = stmt.executeQuery();
+				while (rs.next()) {
 
-				for (Spawn s : z.getSpawns()) {
+					int id = rs.getInt("id");
+					int spawngroupID = rs.getInt("spawngroupID");
+					String zone = rs.getString("zone");
+					int version = rs.getInt("version");
+					Spawn s = new Spawn(id, spawngroupID, zone, version);
+					spawns.add(s);
 
-					PreparedStatement stmt = null;
-					ResultSet rs = null;
-
-					String statement = "SELECT id,spawngroupID,zone from spawn2 WHERE spawngroupID=?";
-					stmt = conn.prepareStatement(statement);
-					stmt.setInt(1, s.getSpawngroupId());
-					rs = stmt.executeQuery();
-					while (rs.next()) {
-
-						int id = rs.getInt("id");
-						int spawngroupID = rs.getInt("spawngroupID");
-						String zone = rs.getString("zone");
-						spawns.add(new Spawn(id, spawngroupID, zone));
-						SpawnGroup sg = AddSpawnGroup(spawngroupID);
-
-					}
+					z.addSpawn(s);
+					AddSpawnGroup(spawngroupID, zone);
 
 				}
+			}
 
+			for (Zone z : ldonZones) {
+				PreparedStatement stmt = null;
+				ResultSet rs = null;
+				String statement = "SELECT id,spawngroupID,zone,version from spawn2 where zone=?";
+				stmt = conn.prepareStatement(statement);
+				stmt.setString(1, z.getName());
+				rs = stmt.executeQuery();
+				while (rs.next()) {
+
+					int id = rs.getInt("id");
+					int spawngroupID = rs.getInt("spawngroupID");
+					int version = rs.getInt("version");
+					String zone = rs.getString("zone");
+					Spawn s = new Spawn(id, spawngroupID, zone, version);
+					if (version == 2) {
+						spawns.add(s);
+						z.addSpawn(s);
+						AddSpawnGroup(spawngroupID, zone);
+					}
+				}
 			}
 
 			conn.close();
@@ -410,6 +727,43 @@ public class EQDao {
 			System.out.println("SQLState: " + ex.getSQLState());
 			System.out.println("VendorError: " + ex.getErrorCode());
 		}
+
+	}
+
+	public ArrayList<SpawnGroup> GetSpawnGroupsFromZone(String zone) {
+		ArrayList<SpawnGroup> zsg = new ArrayList<SpawnGroup>();
+		for (SpawnGroup sg : spawnGroups) {
+			System.out.println(sg.getId());
+			if (sg.getZone().contentEquals(zone)) {
+				zsg.add(sg);
+			}
+		}
+		return zsg;
+
+	}
+
+	public SpawnGroup AddSpawnGroup(int spawnGroupID, String zone) {
+
+		for (SpawnGroup s : spawnGroups) {
+
+			if (s.getId() == spawnGroupID) {
+				s.addZone(zone);
+				s.addTotalSpawn();
+				return s;
+			}
+		}
+
+		SpawnGroup sg = new SpawnGroup(spawnGroupID);
+
+		for (int i = 0; i < ConfigReader.FORBIDDEN_SPAWNGROUPS.length; i++) {
+			if (spawnGroupID == ConfigReader.FORBIDDEN_SPAWNGROUPS[i])
+				sg.forbid();
+		}
+
+		sg.addZone(zone);
+		spawnGroups.add(sg);
+		sg.addTotalSpawn();
+		return sg;
 
 	}
 
@@ -462,17 +816,12 @@ public class EQDao {
 		dumpFactions(10);
 
 		for (Zone z : zones) {
-
 			for (Spawn s : spawns) {
-
 				if (z.getName().equals(s.getZone())) {
 					z.addSpawn(s);
-
 				}
-
 			}
 		}
-
 	}
 
 	public Faction GetFactionFromSpawnGroup(SpawnGroup spawnGroup) {
@@ -484,7 +833,16 @@ public class EQDao {
 			// haven't set one yet..
 
 			Mob m = GetMobByID(se.getNpcId());
-			spawnGroup.addMob(m);
+			Mob freshMob = null;
+			try {
+				freshMob = (Mob) m.clone();
+			} catch (CloneNotSupportedException e) {
+
+				e.printStackTrace();
+				System.exit(0);
+			}
+
+			spawnGroup.addMob(freshMob);
 			if (f1.size() == 0 && f2.size() == 0) {
 				f1.add(m.getPrimaryFaction());
 			} else {
@@ -512,9 +870,9 @@ public class EQDao {
 		}
 	}
 
-	public ArrayList<SpawnGroup> GetAllSpawnGroupsInZone(Zone zone) {
+	public ArrayList<SpawnGroup> GetAllSpawnGroupsInZone(Zone zone, boolean ldon) {
 
-		Zone z = GetZoneByName(zone.getName());
+		Zone z = GetZoneByName(zone.getName(), ldon);
 
 		ArrayList<SpawnGroup> groups = new ArrayList<SpawnGroup>();
 
@@ -535,14 +893,41 @@ public class EQDao {
 
 	}
 
+	public ArrayList<SpawnGroup> GetAllSpawnGroupsInZone(String zone, boolean ldon) {
+
+		ArrayList<SpawnGroup> groups = new ArrayList<SpawnGroup>();
+		Zone z = GetZoneByName(zone, ldon);
+		List<Integer> sgIds = new ArrayList<Integer>();
+
+		for (Spawn s : z.getSpawns()) {
+			if (!sgIds.contains(s.getSpawngroupId()))
+				sgIds.add(s.getSpawngroupId());
+		}
+
+		for (Integer i : sgIds) {
+			groups.add(GetSpawnGroupByID(i));
+
+		}
+
+		return groups;
+
+	}
+
 	public ArrayList<Faction> GetPrimaryFactionsByZone(Zone zone) {
 
 		ArrayList<Faction> factions = new ArrayList<Faction>();
 		ArrayList<Mob> mobs = GetMobsInZone(zone);
 
 		for (Mob m : mobs) {
+			Mob freshMob = null;
+			try {
+				freshMob = (Mob) m.clone();
+			} catch (CloneNotSupportedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 
-			zone.addMob(m);
+			zone.addMob(freshMob);
 
 			if (!factions.contains(m.getPrimaryFaction())) {
 
@@ -556,167 +941,14 @@ public class EQDao {
 
 	}
 
-	public ComparableFactionObject GetComparableMobs(Faction faction, ArrayList<Mob> factionMobs, boolean filterAnimals,
-			boolean filterKOS) {
-		ComparableFactionObject compObj = null;
-		ArrayList<Mob> comp = new ArrayList<Mob>();
-
-		int lowest = 99;
-		int highest = 1;
-		int rLowest = 99;
-		int rHighest = 1;
-		for (Mob m : factionMobs) {
-			if (m.getLevel() < lowest)
-				lowest = m.getLevel();
-			if (m.getLevel() > highest) {
-				highest = m.getLevel();
-			}
-		}
-
-		Faction likeFaction = null;
-
-		int counter = 0;
-		while (likeFaction == null) {
-			if (counter >= MAX_RANDOM_FACTION_CHECK) {
-				System.out.println("AHHHHHH");
-				System.exit(0);
-				break;
-			}
-
-			Faction randomFaction = trimmedFactions.get(rn.nextInt(trimmedFactions.size()));
-
-			if (randomFaction.getId() != faction.getId()) {
-				boolean shouldContinue = true;
-				for (int i = 0; i < ConfigReader.REJECTED_FACTION_IDS.length; i++) {
-
-					if (ConfigReader.REJECTED_FACTION_IDS[i] == randomFaction.getId()) {
-						if (ConfigReader.REJECTED_FACTION_IDS[i] == 332) {
-							System.out.println("HIGHPASS GUARDS WTF");
-							System.exit(0);
-						}
-						shouldContinue = false;
-					}
-
-				}
-				if (filterAnimals) {
-					if (randomFaction.getId() == ConfigReader.ANIMAL_FACTION) {
-						shouldContinue = false;
-					}
-					if (randomFaction.getId() == ConfigReader.BEETLE_FACTION) {
-						shouldContinue = false;
-					}
-				}
-				if (filterKOS) {
-					if (randomFaction.getId() == ConfigReader.KOS_FACTION) {
-						shouldContinue = false;
-					}
-				}
-
-				if (!shouldContinue)
-					continue;
-				rLowest = randomFaction.getLowest();
-				rHighest = randomFaction.getHighest();
-				if (Math.abs(randomFaction.getAverage() - faction.getAverage()) > 20)
-					continue;
-
-				// the lowest + 3 4 >= lowest of this one, and the highest is less than the
-				// highest of this + 3... that is within range.
-				if (lowest + 3 >= rLowest && highest <= rHighest + 3) {
-					// this is within range
-
-					for (Mob rm : randomFaction.getMobs()) {
-
-						if (rm.getLevel() >= lowest - 3 && rm.getLevel() <= highest + 3) {
-
-							comp.add(rm);
-
-						}
-
-					}
-
-					if (comp.size() <= 5)
-						continue;
-
-					compObj = new ComparableFactionObject(randomFaction, comp, rLowest, rHighest);
-
-					return compObj;
-
-				}
-
-			}
-
-			counter++;
-		}
-
-		return compObj;
-	}
-
-	public Faction GetRandomLikeFaction(Faction faction) {
-
-		Faction likeFaction = faction;
-		Random rn = new Random();
-
-		for (int i = 0; i < 500; i++) {
-
-			Faction randomFaction = trimmedFactions.get(rn.nextInt(trimmedFactions.size()));
-
-			if (randomFaction.getId() == likeFaction.getId()) {
-				i++;
-			} else {
-
-				if (Faction.CompareFactions(likeFaction, randomFaction)) {
-
-					return randomFaction;
-				}
-			}
-
-		}
-		// System.out.println("No Like Faction found for " + faction.getName());
-		return likeFaction;
-	}
-
-	public void ReplaceAllFactionInZoneWithFaction(Zone zone, Faction original, Faction rep) {
-
-		ArrayList<SpawnGroup> sgs = GetAllSpawnGroupsInZone(zone);
-
-	}
-
-	public ArrayList<SpawnEntry> GetEntriesInZone(String zone) {
-		Zone z = GetZoneByName(zone);
-
-		ArrayList<SpawnEntry> zoneEntries = new ArrayList<SpawnEntry>();
-
-		List<Integer> sgIds = new ArrayList<Integer>();
-
-		for (Spawn s : z.getSpawns()) {
-
-			// WE WANT SPAWN GROUPS...
-			if (!sgIds.contains(s.getSpawngroupId()))
-				sgIds.add(s.getSpawngroupId());
-		}
-
-		for (Integer i : sgIds) {
-
-			SpawnGroup sg = GetSpawnGroupByID(i);
-
-			for (SpawnEntry se : sg.getEntries()) {
-				zoneEntries.add(se);
-			}
-
-		}
-
-		return zoneEntries;
-
-	}
-
 	public ArrayList<Mob> GetMobsInZone(Zone z) {
 
 		ArrayList<Mob> zoneEntries = new ArrayList<Mob>();
-
 		List<Integer> sgIds = new ArrayList<Integer>();
 
 		for (Spawn s : z.getSpawns()) {
-			System.out.println(s.getId() + " " + s.getSpawngroupId());
+			if (Debug.DEBUG_SPAWN_GROUPS)
+				System.out.println(s.getId() + " " + s.getSpawngroupId());
 
 			// WE WANT SPAWN GROUPS...
 			if (!sgIds.contains(s.getSpawngroupId()))
@@ -730,11 +962,9 @@ public class EQDao {
 			for (SpawnEntry se : sg.getEntries()) {
 				Mob m = GetMobByID(se.getNpcId());
 				if (m != null) {
-					if (m.getName().length() <= 3) {
-						System.out.println("ARE YOU FUCKING KIDDING ME?");
-						System.exit(0);
-					}
-					zoneEntries.add(GetMobByID(se.getNpcId()));
+
+					zoneEntries.add(m);
+
 				}
 			}
 		}
@@ -757,25 +987,22 @@ public class EQDao {
 
 	}
 
-	public Zone GetZoneByName(String name) {
+	public Zone GetZoneByName(String name, boolean ldon) {
 		Zone z = zones.get(0);
 
-		for (Zone zones : zones) {
-			if (zones.getName().equals(name)) {
-				return zones;
+		if (ldon) {
+			for (Zone zones : ldonZones) {
+				if (zones.getName().equals(name)) {
+					System.out.println("RETURNING " + name);
+					return zones;
+				}
 			}
-		}
 
-		return z;
-
-	}
-
-	public Zone GetZoneByID(int id) {
-		Zone z = zones.get(0);
-
-		for (Zone zones : zones) {
-			if (zones.getId() == id) {
-				return zones;
+		} else {
+			for (Zone zones : zones) {
+				if (zones.getName().equals(name)) {
+					return zones;
+				}
 			}
 		}
 
@@ -870,6 +1097,35 @@ public class EQDao {
 		return f;
 	}
 
+	public void loadLDONZones() {
+
+		Connection conn = null;
+		try {
+			conn = DriverManager.getConnection(CONNECTION_STRING);
+			PreparedStatement stmt = null;
+			ResultSet rs = null;
+			String statement = "SELECT id,short_name,long_name from zone WHERE expansion = 7";
+			stmt = conn.prepareStatement(statement);
+			rs = stmt.executeQuery();
+			while (rs.next()) {
+
+				int id = rs.getInt("id");
+				String name = rs.getString("short_name");
+				String longName = rs.getString("long_name");
+				Zone z = new Zone(id, name);
+				z.setLongName(longName);
+				ldonZones.add(z);
+
+			}
+			conn.close();
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+		}
+	}
+
 	public void loadZones() {
 
 		Connection conn = null;
@@ -942,6 +1198,7 @@ public class EQDao {
 				int id = rs.getInt("id");
 				String name = rs.getString("name");
 				primaryFactions.add(new Faction(id, name));
+
 			}
 			conn.close();
 		} catch (SQLException ex) {
@@ -960,25 +1217,35 @@ public class EQDao {
 			conn = DriverManager.getConnection(CONNECTION_STRING);
 			PreparedStatement stmt = null;
 			ResultSet rs = null;
-			String statement = "SELECT spawngroupID,npcID from spawnentry";
+			String statement = "SELECT spawngroupID,npcID,chance from spawnentry";
 			stmt = conn.prepareStatement(statement);
 			rs = stmt.executeQuery();
 			while (rs.next()) {
 
 				int spawngroupID = rs.getInt("spawngroupID");
 				int npcID = rs.getInt("npcID");
-				SpawnEntry se = new SpawnEntry(spawngroupID, npcID);
+				int chance = rs.getInt("chance");
+				SpawnEntry se = new SpawnEntry(spawngroupID, npcID, chance);
 				SpawnGroup sg = GetSpawnGroupByID(spawngroupID);
 				if (sg.getId() == 999999) {
 
 				} else {
 					spawnEntries.add(se);
 					sg.AddEntry(se);
-					sg.addMob(GetMobByID(npcID));
+					Mob m = null;
+					try {
+						m = (Mob) GetMobByID(npcID).clone();
+					} catch (CloneNotSupportedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+
+					sg.addMob(m);
 				}
 
 			}
 			conn.close();
+			System.out.println("loaded spawn entries");
 		} catch (SQLException ex) {
 			// handle any errors
 			System.out.println("SQLException: " + ex.getMessage());
@@ -986,75 +1253,6 @@ public class EQDao {
 			System.out.println("VendorError: " + ex.getErrorCode());
 		}
 
-	}
-
-	public void loadSpawns() {
-
-		Connection conn = null;
-		try {
-			conn = DriverManager.getConnection(CONNECTION_STRING);
-			PreparedStatement stmt = null;
-			ResultSet rs = null;
-			String statement = "SELECT id,spawngroupID,zone from spawn2";
-			stmt = conn.prepareStatement(statement);
-			rs = stmt.executeQuery();
-			while (rs.next()) {
-
-				int id = rs.getInt("id");
-				int spawngroupID = rs.getInt("spawngroupID");
-				String zone = rs.getString("zone");
-				spawns.add(new Spawn(id, spawngroupID, zone));
-
-			}
-			conn.close();
-		} catch (SQLException ex) {
-			// handle any errors
-			System.out.println("SQLException: " + ex.getMessage());
-			System.out.println("SQLState: " + ex.getSQLState());
-			System.out.println("VendorError: " + ex.getErrorCode());
-		}
-
-	}
-
-	public void loadMobs() {
-
-		Connection conn = null;
-		try {
-			conn = DriverManager.getConnection(CONNECTION_STRING);
-			PreparedStatement stmt = null;
-			ResultSet rs = null;
-			String statement = "SELECT id,name,level,merchant_id,npc_faction_id,trap_template,adventure_template_id,qglobal,raid_target,untargetable,runspeed,underwater,race  FROM npc_types";
-			stmt = conn.prepareStatement(statement);
-			rs = stmt.executeQuery();
-
-			while (rs.next()) {
-
-				String name = rs.getString("name");
-				int underwater = rs.getInt("underwater");
-				int id = rs.getInt("id");
-				int lev = rs.getInt("level");
-				int runspeed = rs.getInt("runspeed");
-				int merchantID = rs.getInt("merchant_id");
-				int factionID = rs.getInt("npc_faction_id");
-				int trapID = rs.getInt("trap_template");
-				int globalq = rs.getInt("qglobal");
-				int adventureID = rs.getInt("adventure_template_id");
-				int race = rs.getInt("race");
-				int untargetable = rs.getInt("untargetable");
-				int raidTarget = rs.getInt("raid_target");
-				Mob m = new Mob(id, name, lev, adventureID, trapID, factionID, merchantID, globalq, raidTarget,
-						untargetable, race);
-				if (runspeed > 0) {
-					mobs.add(m);
-				}
-			}
-			conn.close();
-		} catch (SQLException ex) {
-			// handle any errors
-			System.out.println("SQLException: " + ex.getMessage());
-			System.out.println("SQLState: " + ex.getSQLState());
-			System.out.println("VendorError: " + ex.getErrorCode());
-		}
 	}
 
 	public void loadSpawnGroups() {
@@ -1085,95 +1283,24 @@ public class EQDao {
 
 	}
 
-	public void updateSpawnEntriesByZoneAndLevel(ArrayList<SpawnGroup> groups, String zone) {
+	public ArrayList<Mob> GetBalancedNamed(int count, int minLevel, int maxLevel) {
 
-		Connection conn = null;
-		try {
-			conn = DriverManager.getConnection(CONNECTION_STRING);
-
-			for (SpawnGroup sg : groups) {
-
-				// if (sg.getZone().equals(zone)) {
-
-				for (SpawnEntry se : sg.getEntries()) {
-
-					Mob m = Mob.GetMobByID(se.getNpcId());
-
-					if (m == null) {
-						continue;
-					}
-
-					if ((m.getName().charAt(0) == 'a' && m.getName().charAt(1) == '_')
-							|| (m.getName().charAt(0) == 'A' && m.getName().charAt(1) == '_')
-							|| (m.getName().charAt(0) == 'a' && m.getName().charAt(1) == 'n'
-									&& m.getName().charAt(2) == '_')
-							|| (m.getName().charAt(0) == 'A' && m.getName().charAt(1) == 'n'
-									&& m.getName().charAt(2) == '_')) {
-
-						int replacementLevel = Math.min(Math.max(1, (rn.nextInt(5) - 2) + m.getLevel()), 100);
-
-						ArrayList<Mob> possible = Mob.GetMobsByLevel(replacementLevel);
-
-						Mob random = possible.get(rn.nextInt(possible.size()));
-						try {
-							String statement = "UPDATE spawnentry SET npcID=? WHERE spawngroupID=?";
-							PreparedStatement stmt = conn.prepareStatement(statement);
-
-							stmt.setInt(1, random.getId());
-							stmt.setInt(2, se.getId());
-							stmt.executeUpdate();
-						} catch (SQLException ex) {
-							// handle any errors
-							System.out.println("SQLException: " + ex.getMessage());
-							System.out.println("SQLState: " + ex.getSQLState());
-							System.out.println("VendorError: " + ex.getErrorCode());
-						}
-
-					}
-
-				}
-
+		ArrayList<Mob> namedTempList = new ArrayList<Mob>();
+		Collections.shuffle(namedMobs);
+		int counter = 0;
+		for (Mob m : namedMobs) {
+			if (counter >= count) {
+				return namedTempList;
 			}
 
-			conn.close();
-		} catch (SQLException ex) {
-			// handle any errors
-			System.out.println("SQLException: " + ex.getMessage());
-			System.out.println("SQLState: " + ex.getSQLState());
-			System.out.println("VendorError: " + ex.getErrorCode());
-		}
-
-		//
-
-	}
-
-	public ArrayList<SpawnEntry> getSpawnEntryBySpawnGroupID(int sgID, Connection conn) {
-
-		ArrayList<SpawnEntry> entries = new ArrayList<SpawnEntry>();
-
-		try {
-
-			PreparedStatement stmt = null;
-			ResultSet rs = null;
-			String statement = "SELECT npcID FROM spawnentry where spawngroupID=?";
-			stmt = conn.prepareStatement(statement);
-			stmt.setInt(1, sgID);
-			rs = stmt.executeQuery();
-
-			while (rs.next()) {
-
-				int npcID = rs.getInt("npcID");
-				entries.add(new SpawnEntry(sgID, npcID));
+			if (m.level >= minLevel && m.level <= maxLevel) {
+				namedTempList.add(m);
+				counter++;
 			}
 
-		} catch (SQLException ex) {
-			// handle any errors
-			System.out.println("SQLException: " + ex.getMessage());
-			System.out.println("SQLState: " + ex.getSQLState());
-			System.out.println("VendorError: " + ex.getErrorCode());
 		}
 
-		return entries;
+		return namedTempList;
 
 	}
 
@@ -1189,6 +1316,20 @@ public class EQDao {
 		return floatingConnection;
 	}
 
+	public void GetSpecialtyMobs() {
+
+		for (Mob m : filteredMobs) {
+			if (m.Class == 11) {
+				necroMobs.add(m);
+			} else if (m.Class == 12 || m.Class == 13) {
+				mageMobs.add(m);
+			} else if (m.Class == 5) {
+				skMobs.add(m);
+			}
+		}
+
+	}
+
 	public void CloseFloating() {
 		try {
 			floatingConnection.close();
@@ -1198,27 +1339,164 @@ public class EQDao {
 		}
 	}
 
-	public void WriteFaction(BuiltFaction bf) {
+	public void setLootTables(LootEntry lootEntry) {
 
 		Connection conn = null;
 		try {
 			conn = DriverManager.getConnection(CONNECTION_STRING);
-
-			String statement = "INSERT INTO faction_list(id,name,base) VALUES(?,?,-30000);";
-			// String statement = "UPDATE spawnentry SET npcID=? WHERE spawngroupID=?";
-			PreparedStatement stmt = conn.prepareStatement(statement);
-			stmt.setInt(1, bf.getId());
-			stmt.setString(2, bf.getName());
-			stmt.execute();
-
-			statement = "INSERT INTO npc_faction(id,name,primaryfaction,ignore_primary_assist) VALUES(?,?,?,0);";
-			// String statement = "UPDATE spawnentry SET npcID=? WHERE spawngroupID=?";
+			PreparedStatement stmt = null;
+			ResultSet rs = null;
+			String statement = "SELECT loottable_id FROM loottable_entries where lootdrop_id=?";
 			stmt = conn.prepareStatement(statement);
-			stmt.setInt(1, bf.getId());
-			stmt.setString(2, bf.getName());
-			stmt.setInt(3, bf.getId());
-			stmt.execute();
+			stmt.setInt(1, lootEntry.getLootdrop_id());
+			rs = stmt.executeQuery();
+
+			while (rs.next()) {
+
+				int ldid = rs.getInt("loottable_id");
+				lootEntry.getLoottable_ids().add(ldid);
+
+			}
 			conn.close();
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+
+		}
+
+	}
+
+	public ArrayList<Mob> GetMobByLoottableID(int lootableID) {
+
+		ArrayList<Mob> mList = new ArrayList<Mob>();
+		for (Mob m : mobs) {
+
+			if (m.loottable_id == lootableID) {
+				mList.add(m);
+			}
+
+		}
+
+		return mList;
+	}
+
+	public ArrayList<LootEntry> GetEntries(Item item) {
+
+		Connection conn = null;
+		try {
+			conn = DriverManager.getConnection(CONNECTION_STRING);
+			PreparedStatement stmt = null;
+			ResultSet rs = null;
+			String statement = "SELECT lootdrop_id FROM lootdrop_entries where item_id=?";
+			stmt = conn.prepareStatement(statement);
+			stmt.setInt(1, item.getId());
+			rs = stmt.executeQuery();
+			ArrayList<LootEntry> entries = new ArrayList<LootEntry>();
+
+			while (rs.next()) {
+				int ldid = rs.getInt("lootdrop_id");
+				LootEntry e = new LootEntry(item);
+				e.setLootdrop_id(ldid);
+				entries.add(e);
+			}
+			conn.close();
+			return entries;
+
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+			return new ArrayList<LootEntry>();
+		}
+
+	}
+
+	public ArrayList<Item> FindItemsByName(String item) {
+
+		Connection conn = null;
+		try {
+			conn = DriverManager.getConnection(CONNECTION_STRING);
+			PreparedStatement stmt = null;
+			ResultSet rs = null;
+			String statement = "SELECT name,id FROM items where name like ?";
+			stmt = conn.prepareStatement(statement);
+			stmt.setString(1, "%" + item + "%");
+			rs = stmt.executeQuery();
+			ArrayList<Item> items = new ArrayList<Item>();
+			while (rs.next()) {
+				int itemID = rs.getInt("id");
+				String name = rs.getString("name");
+				items.add(new Item(itemID, name));
+			}
+			conn.close();
+			return items;
+
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+			return new ArrayList<Item>();
+		}
+
+	}
+
+	public static int RAID_FACTION_ID = 5000000;
+
+	public void WriteRaidFaction() {
+		try {
+
+			if (!Debug.SKIP_SQL) {
+
+				Connection conn = DriverManager.getConnection(CONNECTION_STRING);
+				String statement = "INSERT INTO faction_list(id,name,base) VALUES(?,?,?);";
+				PreparedStatement stmt = conn.prepareStatement(statement);
+				stmt.setInt(1, RAID_FACTION_ID);
+				stmt.setString(2, "Raid Faction");
+				stmt.setInt(3, -9999);
+				stmt.execute();
+				statement = "INSERT INTO npc_faction(id,name,primaryfaction,ignore_primary_assist) VALUES(?,?,?,0);";
+				stmt = conn.prepareStatement(statement);
+				stmt.setInt(1, RAID_FACTION_ID);
+				stmt.setString(2, "Raid Faction");
+				stmt.setInt(3, 0);
+				stmt.execute();
+				System.out.println("Wrote Raid Faction");
+				conn.close();
+			}
+
+		} catch (SQLException ex) {
+			// handle any errors
+			System.out.println("SQLException: " + ex.getMessage());
+			System.out.println("SQLState: " + ex.getSQLState());
+			System.out.println("VendorError: " + ex.getErrorCode());
+		}
+
+	}
+
+	public void WriteFaction(BuiltFaction bf) {
+
+		try {
+
+			if (!Debug.SKIP_SQL) {
+				Connection conn = DriverManager.getConnection(CONNECTION_STRING);
+				String statement = "INSERT INTO faction_list(id,name,base) VALUES(?,?,?);";
+				PreparedStatement stmt = conn.prepareStatement(statement);
+				stmt.setInt(1, bf.getId());
+				stmt.setString(2, bf.getName());
+				stmt.setInt(3, bf.getBaseFaction());
+				stmt.execute();
+				statement = "INSERT INTO npc_faction(id,name,primaryfaction,ignore_primary_assist) VALUES(?,?,?,0);";
+				stmt = conn.prepareStatement(statement);
+				stmt.setInt(1, bf.getId());
+				stmt.setString(2, bf.getName());
+				stmt.setInt(3, bf.getId());
+				stmt.execute();
+				conn.close();
+			}
 
 		} catch (SQLException ex) {
 			// handle any errors
@@ -1231,10 +1509,16 @@ public class EQDao {
 
 	}
 
-	public void ReplaceMobs(ArrayList<SpawnEntry> entries, ArrayList<Mob> replacementMobs) {
+	public void ReplaceMobs(ArrayList<SpawnEntry> entries, ArrayList<Mob> replacementMobs,
+			ArrayList<Mob> namedMobsToAdd, float percentChance, int popularity) {
+
+		int totalLevels = 0;
+		int ogMobs = entries.size();
 
 		ArrayList<Mob> unique = new ArrayList<Mob>();
 
+		// i wonder if we can build a more intelligent list if its too weighted towards
+		// a certain mob...
 		for (Mob repMob : replacementMobs) {
 
 			if (!unique.contains(repMob)) {
@@ -1245,8 +1529,9 @@ public class EQDao {
 		int totalMobs = entries.size();
 
 		if (entries.size() < 3) {
-			totalMobs += rn.nextInt(2) + 1;
+			totalMobs += rn.nextInt(2);
 		}
+		totalMobs += Util.caclulateExtraSpawns(popularity);
 
 		if (totalMobs > unique.size()) {
 			totalMobs = unique.size();
@@ -1263,25 +1548,29 @@ public class EQDao {
 					COMPLETE_FAILURES++;
 					return;
 				}
-
 				Mob original = GetMobByID(entries.get(i).getNpcId());
-
-				Mob rep = unique.get(rn.nextInt(unique.size()));
+				Mob rep;
+				int rChance = rn.nextInt(100);
+				if (rChance <= percentChance) {
+					rep = replacementMobs.get(rn.nextInt(replacementMobs.size()));
+				} else {
+					rep = unique.get(rn.nextInt(unique.size()));
+				}
 
 				ArrayList<Mob> copyMobs = (ArrayList<Mob>) unique.clone();
-				System.out.println(copyMobs.size());
-				ArrayList<Mob> closestMobs = new ArrayList<Mob>();
+
 				// get highest
 				Collections.shuffle(copyMobs);
 				boolean gotClose = false;
 
-				for (int xx = 3; xx < 20; xx++) {
+				for (int xx = 2; xx < 40; xx++) {
 					rep = copyMobs.get(rn.nextInt(copyMobs.size()));
 					for (Mob mm : copyMobs) {
 
 						if (Math.abs(mm.level - original.level) <= xx) {
 							rep = mm;
 							gotClose = true;
+
 							break;
 						}
 
@@ -1290,95 +1579,109 @@ public class EQDao {
 						break;
 					}
 				}
-
-				if (original.getName().contains("Animation")) {
-
-					Mob highest = unique.get(0);
-					for (Mob m : unique) {
-						if (m.level > highest.level) {
-							highest = m;
-						}
-
-					}
-
-					rep = highest;
-
-				}
 				unique.remove(rep);
-
+				MOBS_ADDED_TO_ZONE++;
+				totalLevels += rep.level;
 				String statement = "UPDATE spawnentry SET npcID=?,chance=? WHERE spawngroupID=? AND npcID=?";
 				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
 				// System.out.println("ENTRIES=" + entries.size() + " LOL " +
 				// entries.get(i).getId());
-				stmt.setInt(1, rep.getId());
-				stmt.setInt(2, chances[i]);
-				stmt.setInt(3, entries.get(i).getId());
-				stmt.setInt(4, entries.get(i).getNpcId());
-				stmt.executeUpdate();
-				// System.out.println("***************************************\n Replaced "
-				// + GetMobByID(entries.get(i).getNpcId()) + " WITH " + rep + "\n");
-				// System.out.println("ADDED " + rep);
+
+				if (!Debug.SKIP_SQL) {
+
+					if (original.getId() != 500) {
+						stmt.setInt(1, rep.getId());
+						stmt.setInt(2, chances[i]);
+						stmt.setInt(3, entries.get(i).getId());
+						stmt.setInt(4, entries.get(i).getNpcId());
+						stmt.executeUpdate();
+					}
+				}
 
 			} catch (SQLException e) {
 
-				System.out.println(e.getMessage());
+				System.out.println("SQL ERROR " + e.getMessage());
 				System.exit(0);
+
 			}
 
 		}
 
+		int average = totalLevels / ogMobs;
+
 		for (int ii = entries.size(); ii < totalMobs; ii++) {
 
+			Mob rep = unique.get(rn.nextInt(unique.size()));
+
+			ArrayList<Mob> copyMobs = (ArrayList<Mob>) unique.clone();
+
+			// get highest
+			Collections.shuffle(copyMobs);
+			boolean gotClose = false;
+
+			for (int xx = 1; xx < 20; xx++) {
+				rep = copyMobs.get(rn.nextInt(copyMobs.size()));
+				for (Mob mm : copyMobs) {
+
+					if (Math.abs(mm.level - average) <= xx) {
+						rep = mm;
+						gotClose = true;
+
+						break;
+					}
+
+				}
+				if (gotClose) {
+					break;
+				}
+			}
 			try {
 
 				if (unique.size() == 0) {
 					COMPLETE_FAILURES++;
 					return;
 				}
-
-				Mob rep = unique.get(rn.nextInt(unique.size()));
+				rep = unique.get(rn.nextInt(unique.size()));
 				unique.remove(rep);
-
 				String statement = "INSERT INTO spawnentry(spawngroupID,npcID,chance,condition_value_filter) VALUES(?,?,?,?);";
 				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
-				stmt.setInt(1, entries.get(0).getId());
-				stmt.setInt(2, rep.getId());
-				stmt.setInt(3, chances[ii]);
-				stmt.setInt(4, 1);
-				stmt.execute();
+				// System.out.println("ADDING: " + rep);
+				if (!Debug.SKIP_SQL) {
+
+					stmt.setInt(1, entries.get(0).getId());
+					stmt.setInt(2, rep.getId());
+					stmt.setInt(3, chances[ii]);
+					stmt.setInt(4, 1);
+					stmt.execute();
+				} else {
+					// System.out.println(rep);
+				}
 				// System.out.println("ADDED " + rep);
 
 			} catch (SQLException e) {
-
 				System.out.println(e.getMessage());
-				System.exit(0);
-
 			}
 		}
 
 	}
 
-	public ArrayList<Mob> filterMobSet(ArrayList<Mob> mobs) {
-		int total = 0;
+	public ArrayList<Integer> GetTexturesByRace(int raceID) {
 
-		for (Mob m : mobs) {
-			System.out.println(m);
-
-			total += m.level;
-		}
-		int average = total / mobs.size();
-
-		ArrayList<Mob> mobsToFilter = new ArrayList<Mob>();
-
-		for (Mob m : mobs) {
-			if (m.level - average >= 25) {
-				mobsToFilter.add(m);
+		ArrayList<Integer> textures = new ArrayList<Integer>();
+		for (Mob m : filteredMobs) {
+			if (m.race == raceID) {
+				int texture = m.texture;
+				boolean contains = false;
+				for (Integer t : textures) {
+					if (t.intValue() == texture)
+						contains = true;
+				}
+				if (!contains) {
+					textures.add(texture);
+				}
 			}
 		}
-		for (Mob m : mobsToFilter) {
-			mobs.remove(m);
-		}
-		return mobsToFilter;
+		return textures;
 
 	}
 
@@ -1386,5 +1689,308 @@ public class EQDao {
 		return rn;
 	}
 	//
+
+	public void ReplaceMobs4(int spawnGroupID, ArrayList<Mob> replacementMobs, FactionBundle helperBundle) {
+		int maxMobs = 8;
+		ArrayList<Mob> unique = new ArrayList<Mob>();
+		// adding rep mobs to a unique arraylist
+		for (Mob repMob : replacementMobs) {
+			if (!unique.contains(repMob)) {
+				unique.add(repMob);
+			}
+		}
+
+		int totalMobs = Math.min(maxMobs, unique.size()); // take the minum of these two
+
+		try {
+
+			if (!Debug.SKIP_SQL) {
+				String statement = " DELETE from spawnentry where spawngroupID=?;";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.executeUpdate();
+				for (int i = 0; i < totalMobs; i++) {
+
+					Mob rep = unique.remove(rn.nextInt(unique.size()));
+
+					statement = "INSERT INTO spawnentry VALUES(?,?,?,?);";
+					stmt = floatingConnection.prepareStatement(statement);
+					stmt.setInt(1, spawnGroupID);
+					stmt.setInt(2, rep.getId());
+					stmt.setInt(3, 100);
+					stmt.setInt(4, 1);
+					stmt.executeUpdate();
+					MOBS_ADDED_TO_ZONE++;
+
+				}
+
+			}
+
+		} catch (SQLException e) {
+
+			System.out.println("SQL ERROR WRITE ERROR" + e.getMessage());
+			// System.exit(0);
+
+		}
+
+	}
+
+	public void ReplaceMobs2(ArrayList<SpawnEntry> entries, ArrayList<Mob> replacementMobs,
+			FactionBundle helperBundle) {
+		// size of entry
+		int totalMobs = entries.size();
+
+		ArrayList<Mob> unique = new ArrayList<Mob>();
+		// adding rep mobs to a unique arraylist
+		for (Mob repMob : replacementMobs) {
+			if (!unique.contains(repMob)) {
+				unique.add(repMob);
+			}
+		}
+
+		int maxCounter = 0;
+		while (unique.size() < entries.size() + 2) {
+			maxCounter++;
+			if (maxCounter > 20) {
+				break;
+			}
+			Mob cMob = helperBundle.getOriginal().GetMobNearLevel(unique.get(0).getLevel());
+			if (cMob == null) {
+				System.out.println("WE COULD NOT FIND A CLOSE REP");
+				System.exit(0);
+			}
+			boolean stillUnique = true;
+			for (Mob uMob : unique) {
+				if (uMob.getId() == cMob.getId()) {
+					stillUnique = false;
+				}
+			}
+			if (stillUnique) {
+				unique.add(cMob);
+			}
+
+		}
+		int originalUniqueSize = unique.size();
+
+		totalMobs = unique.size();
+		int[] chances = Util.GetChancesFor(totalMobs);
+
+		// VARIETY_REPORT[unique.size()]++;
+
+		for (int i = 0; i < entries.size(); i++) {
+
+			try {
+				Mob original = GetMobByID(entries.get(i).getNpcId());
+
+				if (unique.size() == 0) {
+					continue;
+				}
+				Mob rep = unique.get(rn.nextInt(unique.size()));
+
+				while (rep == null) {
+					unique.remove(rep);
+					rep = unique.get(rn.nextInt(unique.size()));
+				}
+
+				MOBS_ADDED_TO_ZONE++;
+				String statement = "UPDATE spawnentry SET npcID=?,chance=? WHERE spawngroupID=? AND npcID=?";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				// System.out.println("ENTRIES=" + entries.size() + " LOL " +
+				// entries.get(i).getId());
+
+				if (!Debug.SKIP_SQL) {
+
+					if (original.getId() != 500) {
+						stmt.setInt(1, rep.getId());
+						stmt.setInt(2, chances[i]);
+						stmt.setInt(3, entries.get(i).getId());
+						stmt.setInt(4, entries.get(i).getNpcId());
+						stmt.executeUpdate();
+					}
+				}
+				unique.remove(rep);
+
+			} catch (SQLException e) {
+
+				System.out.println("SQL ERROR WRITE ERROR" + e.getMessage());
+				// System.exit(0);
+
+			} catch (ArrayIndexOutOfBoundsException ee) {
+				System.out.println("CHANCES =" + chances.length + "   TOTAL MOBS=" + totalMobs + "   ENTRIES="
+						+ entries.size() + " OG UIQUE " + originalUniqueSize);
+				System.exit(0);
+			}
+
+		}
+
+		for (int ii = entries.size(); ii < totalMobs; ii++) {
+
+			Mob rep = unique.get(rn.nextInt(unique.size()));
+
+			try {
+				int yikesCounter = 0;
+				rep = unique.get(rn.nextInt(unique.size()));
+				while (rep == null) {
+					unique.remove(rep);
+					yikesCounter++;
+					rep = unique.get(rn.nextInt(unique.size()));
+					if (yikesCounter > 100) {
+						System.out.println("OOOF");
+						System.exit(0);
+					}
+				}
+				String statement = "INSERT INTO spawnentry(spawngroupID,npcID,chance,condition_value_filter) VALUES(?,?,?,?);";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				// System.out.println("ADDING: " + rep);
+				if (!Debug.SKIP_SQL) {
+
+					stmt.setInt(1, entries.get(0).getId());
+					stmt.setInt(2, rep.getId());
+					stmt.setInt(3, chances[ii]);
+					stmt.setInt(4, 1);
+					stmt.execute();
+				} else {
+					// System.out.println(rep);
+				}
+				unique.remove(rep);
+				// System.out.println("ADDED " + rep);
+
+			} catch (SQLException e) {
+
+				System.out.println(e.getMessage());
+
+			}
+		}
+
+	}
+
+	public void SetLDONZones() {
+
+		if (!Debug.SKIP_SQL) {
+			String statement = "UPDATE zone set expansion=1 where expansion=7";
+			try {
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				stmt.executeUpdate();
+			} catch (SQLException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+
+	}
+
+	public void ReplaceMobs3(int spawnGroupID, Mob rep) {
+
+		try {
+
+			if (!Debug.SKIP_SQL) {
+				String statement = " DELETE from spawnentry where spawngroupID=?;";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.executeUpdate();
+				statement = "INSERT INTO spawnentry VALUES(?,?,?,?);";
+				stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.setInt(2, rep.getId());
+				stmt.setInt(3, 100);
+				stmt.setInt(4, 1);
+				stmt.executeUpdate();
+				MOBS_ADDED_TO_ZONE++;
+
+				statement = " UPDATE spawn2 set respawntime=20000 where spawngroupID=?;";
+				stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.executeUpdate();
+
+			}
+
+		} catch (SQLException e) {
+
+			System.out.println("SQL ERROR WRITE ERROR" + e.getMessage());
+			// System.exit(0);
+
+		}
+
+	}
+
+	public void ReplaceWithManyMobs(SpawnGroup sg, ArrayList<Mob> normalMobs, ArrayList<Mob> namedMobs, int chance) {
+		try {
+			ArrayList<Mob> unique = new ArrayList<Mob>();
+			int mobNum = Math.min((3 + rn.nextInt(3)), unique.size());
+			mobNum = Math.max(1, mobNum);
+			// adding rep mobs to a unique arraylist
+			for (Mob repMob : normalMobs) {
+				if (!unique.contains(repMob)) {
+					unique.add(repMob);
+				}
+			}
+			ArrayList<Mob> repMobs = new ArrayList<Mob>();
+			for (int i = 0; i < mobNum; i++) {
+				if (rn.nextInt(100) < chance && namedMobs.size() > 0) {
+					repMobs.add(namedMobs.remove(rn.nextInt(namedMobs.size())));
+				} else {
+					repMobs.add(unique.remove(rn.nextInt(unique.size())));
+				}
+			}
+
+			int[] chances = Util.GetChancesFor(mobNum);
+			int chanceCounter = 0;
+			if (!Debug.SKIP_SQL) {
+
+				String statement = " DELETE from spawnentry where spawngroupID=?;";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, sg.getId());
+				stmt.executeUpdate();
+
+				for (Mob rep : repMobs) {
+					statement = "INSERT INTO spawnentry VALUES(?,?,?,?);";
+					stmt = floatingConnection.prepareStatement(statement);
+					stmt.setInt(1, sg.getId());
+					stmt.setInt(2, rep.getId());
+					stmt.setInt(3, chances[chanceCounter]);
+					stmt.setInt(4, 1);
+					stmt.executeUpdate();
+					MOBS_ADDED_TO_ZONE++;
+					chanceCounter++;
+				}
+			}
+
+		} catch (SQLException e) {
+
+			System.out.println("SQL ERROR WRITE ERROR" + e.getMessage());
+			// System.exit(0);
+
+		}
+
+	}
+
+	public void ReplaceWithOneMob(int spawnGroupID, Mob rep) {
+
+		try {
+
+			if (!Debug.SKIP_SQL) {
+				String statement = " DELETE from spawnentry where spawngroupID=?;";
+				PreparedStatement stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.executeUpdate();
+				statement = "INSERT INTO spawnentry VALUES(?,?,?,?);";
+				stmt = floatingConnection.prepareStatement(statement);
+				stmt.setInt(1, spawnGroupID);
+				stmt.setInt(2, rep.getId());
+				stmt.setInt(3, 100);
+				stmt.setInt(4, 1);
+				stmt.executeUpdate();
+				MOBS_ADDED_TO_ZONE++;
+
+			}
+
+		} catch (SQLException e) {
+
+			System.out.println("SQL ERROR WRITE ERROR" + e.getMessage());
+			// System.exit(0);
+
+		}
+
+	}
 
 }

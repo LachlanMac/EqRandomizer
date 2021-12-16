@@ -12,6 +12,7 @@ public class Zone {
 	private List<SpawnGroup> spawnGroups;
 	private ArrayList<Mob> mobsInZone;
 	private String longName;
+	private int version;
 
 	public Zone(int id, String name) {
 		this.id = id;
@@ -19,6 +20,15 @@ public class Zone {
 		factions = new ArrayList<NPCFaction>();
 		spawns = new ArrayList<Spawn>();
 		mobsInZone = new ArrayList<Mob>();
+		spawnGroups = new ArrayList<SpawnGroup>();
+	}
+
+	public List<SpawnGroup> getSpawnGroups() {
+		return spawnGroups;
+	}
+
+	public void setSpawnGroups(List<SpawnGroup> spawnGroups) {
+		this.spawnGroups = spawnGroups;
 	}
 
 	public void addSpawnGroup(SpawnGroup sg) {
@@ -90,6 +100,14 @@ public class Zone {
 
 	public void setLongName(String longName) {
 		this.longName = longName;
+	}
+
+	public int getVersion() {
+		return version;
+	}
+
+	public void setVersion(int version) {
+		this.version = version;
 	}
 
 }

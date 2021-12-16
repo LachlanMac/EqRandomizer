@@ -7,17 +7,16 @@ public class Spawn {
 	private int id, spawngroupId;
 	private String zone;
 	private List<Mob> mobs;
+	private int version;
 
-	public Spawn(int id, int spawngroupId, String zone) {
+	public Spawn(int id, int spawngroupId, String zone, int version) {
 		this.id = id;
+		this.version = version;
 		this.spawngroupId = spawngroupId;
 		this.zone = zone;
 		mobs = new ArrayList<Mob>();
 	}
 
-	
-	
-	
 	public String getZone() {
 		return zone;
 	}

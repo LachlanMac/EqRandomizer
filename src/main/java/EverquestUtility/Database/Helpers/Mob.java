@@ -3,10 +3,17 @@ package EverquestUtility.Database.Helpers;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Random;
 
+import EverquestUtility.FactionBuilder.FactionBuilder;
 import EverquestUtility.Util.ConfigReader;
+import EverquestUtility.Util.Debug;
 
-public class Mob implements Comparable {
+public class Mob implements Comparable, Cloneable {
+
+	private boolean isMage = false;
+	private boolean isNecro = false;
+	private boolean isSK = false;
 
 	public static ArrayList<Mob> Mobs = new ArrayList<Mob>();
 
@@ -26,6 +33,10 @@ public class Mob implements Comparable {
 
 		return possible;
 
+	}
+
+	public Object clone() throws CloneNotSupportedException {
+		return super.clone();
 	}
 
 	public static Mob GetMobByID(int id) {
@@ -58,6 +69,7 @@ public class Mob implements Comparable {
 	public String name, npcSpecialAttacks, specialAbilities, lastName;
 	private NPCFaction faction;
 	private Faction primaryFaction;
+	private Random rn;
 
 	String insertString = "INSERT INTO `npc_types` VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
 
@@ -69,7 +81,6 @@ public class Mob implements Comparable {
 		if (name.contains("Animation")) {
 			return true;
 		}
-
 		if (lastName != "")
 			return true;
 		if (merchantID != 0) {
@@ -87,12 +98,18 @@ public class Mob implements Comparable {
 		if (findable != 0) {
 			return true;
 		}
-
+		if (race == 73 || race == 72)
+			return true;
 		return filter;
 	}
 
 	public void writeMob(java.sql.Connection connection) {
 		try {
+
+			if (Debug.SKIP_SQL) {
+				return;
+			}
+
 			PreparedStatement stmt = connection.prepareStatement(insertString);
 
 			stmt.setInt(1, id);
@@ -124,8 +141,9 @@ public class Mob implements Comparable {
 			stmt.setInt(27, attack_count);
 			stmt.setString(28, npcSpecialAttacks);
 			stmt.setString(29, specialAbilities);
-			stmt.setInt(30, aggroRadius);
-			stmt.setInt(31, assistRadius);
+
+			stmt.setInt(30, rn.nextInt(15) + 30);
+			stmt.setInt(31, rn.nextInt(15) + 30);
 			stmt.setInt(32, 0);
 			stmt.setInt(33, 0);
 			stmt.setInt(34, 0);
@@ -219,13 +237,12 @@ public class Mob implements Comparable {
 			stmt.setInt(122, always_aggro);
 			stmt.setInt(123, exp_mod);
 			stmt.execute();
-			System.out.println("WROTE: " + this);
 			// stmt.setInt(124, value);
 			// stmt.setInt(125, value);
 		} catch (SQLException e) {
 
-			System.out.println(e.getMessage());
-			// System.exit(0);
+			System.out.println("SQL ERROR[WRITING MOB] " + e.getMessage());
+			System.exit(0);
 
 		}
 
@@ -244,6 +261,7 @@ public class Mob implements Comparable {
 		this.untargetable = untargetable;
 		this.globalQ = globalQ;
 		this.race = race;
+		rn = new Random();
 
 	}
 
@@ -280,9 +298,25 @@ public class Mob implements Comparable {
 
 	}
 
+	public boolean AllowedNoobMobs() {
+		boolean allowed = false;
+
+		for (String s : ConfigReader.NORMAL_MOB_PREFIXES) {
+			if (name.toLowerCase().substring(0, 3).contains(s.toLowerCase())) {
+				return true;
+			}
+		}
+		if (name.toLowerCase().contains("runaway_clockwork")) {
+			return true;
+		}
+		return allowed;
+
+	}
+
 	public String toString() {
 
-		return "[" + id + "] " + name + " lvl:" + level + "  Faction=" + primaryFaction.getName();
+		return "[" + id + "] " + name + " lvl:" + level + "  Faction[" + primaryFaction.getId() + "]"
+				+ primaryFaction.getName();
 
 	}
 
@@ -356,6 +390,7 @@ public class Mob implements Comparable {
 	}
 
 	public void setId(int id) {
+		FactionBuilder.CURRENT_NPC_ID++;
 		this.id = id;
 	}
 
@@ -396,6 +431,30 @@ public class Mob implements Comparable {
 			return -1;
 		}
 
+	}
+
+	public boolean isNecro() {
+		return isNecro;
+	}
+
+	public void setNecro(boolean isNecro) {
+		this.isNecro = isNecro;
+	}
+
+	public boolean isMage() {
+		return isMage;
+	}
+
+	public void setMage(boolean isMage) {
+		this.isMage = isMage;
+	}
+
+	public boolean isSK() {
+		return isSK;
+	}
+
+	public void setSK(boolean isSK) {
+		this.isSK = isSK;
 	}
 
 }

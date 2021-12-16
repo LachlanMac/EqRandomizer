@@ -1,31 +1,31 @@
 package EverquestUtility.Database.Helpers;
 
 public class SpawnEntry {
-	
-	private int id, npcId;
+
+	private int id, npcId, chance;
 	private Zone zone;
-	public SpawnEntry(int id, int npcId)
-	{
-		this.id =id;
+
+	public SpawnEntry(int id, int npcId, int chance) {
+		this.id = id;
 		this.npcId = npcId;
+		this.chance = chance;
 	}
 
-	
-	
-	
+	public int getChance() {
+		return chance;
+	}
+
+	public void setChance(int chance) {
+		this.chance = chance;
+	}
+
 	public Zone getZone() {
 		return zone;
 	}
 
-
-
-
 	public void setZone(Zone zone) {
 		this.zone = zone;
 	}
-
-
-
 
 	public int getId() {
 		return id;
@@ -43,6 +43,4 @@ public class SpawnEntry {
 		this.npcId = npcId;
 	}
 
-	
-	
 }

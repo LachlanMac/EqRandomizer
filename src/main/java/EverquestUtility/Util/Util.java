@@ -1,6 +1,12 @@
 package EverquestUtility.Util;
 
+import java.util.ArrayList;
 import java.util.Random;
+
+import EverquestUtility.Database.Helpers.Faction;
+import EverquestUtility.Database.Helpers.Mob;
+import EverquestUtility.Database.Helpers.SpawnEntry;
+import EverquestUtility.FactionBuilder.FactionBundle;
 
 public class Util {
 
@@ -28,6 +34,18 @@ public class Util {
 		}
 
 		return true;
+	}
+
+	public static FactionBundle GetPossibleFaction(Mob m, ArrayList<FactionBundle> factions) {
+
+		for (FactionBundle faction : factions) {
+			if (m.getPrimaryFaction().getId() == faction.getOriginal().getId()) {
+				return faction;
+			}
+		}
+
+		return null;
+
 	}
 
 	public static int[] GetChancesFor(int x) {
@@ -176,6 +194,33 @@ public class Util {
 			chances[8] = 10;
 			chances[9] = 10;
 			return chances;
+		case 11:
+			chances[0] = 10;
+			chances[1] = 10;
+			chances[2] = 10;
+			chances[3] = 10;
+			chances[4] = 10;
+			chances[5] = 10;
+			chances[6] = 10;
+			chances[7] = 10;
+			chances[8] = 10;
+			chances[9] = 5;
+			chances[10] = 5;
+			return chances;
+		case 12:
+			chances[0] = 10;
+			chances[1] = 10;
+			chances[2] = 10;
+			chances[3] = 10;
+			chances[4] = 10;
+			chances[5] = 10;
+			chances[6] = 10;
+			chances[7] = 10;
+			chances[8] = 5;
+			chances[9] = 5;
+			chances[10] = 5;
+			chances[11] = 5;
+			return chances;
 
 		default:
 			int total = 0;
@@ -187,13 +232,29 @@ public class Util {
 			}
 
 			if (total >= 100) {
-				System.out.println("HOW DID THIS HAPPEN??" + chances.length);
-				System.exit(0);
+
+				total = 100;
 			}
 
 			chances[chances.length - 1] = 100 - total;
 
 			return chances;
+		}
+
+	}
+
+	public static int caclulateExtraSpawns(int totalSpawns) {
+
+		if (totalSpawns <= 1) {
+			return 0;
+		}
+		if (totalSpawns < 2 && totalSpawns >= 4) {
+			return 2;
+		}
+		if (totalSpawns > 5 && totalSpawns <= 8) {
+			return 4;
+		} else {
+			return 5;
 		}
 
 	}
